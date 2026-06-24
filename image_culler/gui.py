@@ -90,8 +90,8 @@ class CullerApp:
             def on_progress(done: int, total: int, _path: Path) -> None:
                 self.events.put(("progress", done, total))
 
-            copied = core.process_folder(folder, on_progress)
-            self.events.put(("done", copied))
+            summary = core.process_folder(folder, on_progress)
+            self.events.put(("done", summary))
         except Exception as exc:  # noqa: BLE001 - surfaced to the user as text
             self.events.put(("error", str(exc)))
 
@@ -111,16 +111,19 @@ class CullerApp:
         if kind == "progress":
             _, done, total = event
             self.progress.config(maximum=max(total, 1), value=done)
-            self.status_label.config(text=f"Copying {done} of {total}...")
+            self.status_label.config(text=f"Analyzing {done} of {total}...")
         elif kind == "done":
-            _, copied = event
-            self.progress.config(maximum=max(copied, 1), value=copied)
-            if copied:
-                self.status_label.config(
-                    text=f"Done: {copied} images copied to selects/"
-                )
-            else:
+            _, summary = event
+            self.progress.config(maximum=max(summary.total, 1), value=summary.total)
+            if summary.total == 0:
                 self.status_label.config(text="No images found in that folder.")
+            else:
+                self.status_label.config(
+                    text=(
+                        f"Done: {summary.kept} keepers to selects/, "
+                        f"{summary.rejected} flagged. See report.csv."
+                    )
+                )
             self._finish()
         elif kind == "error":
             _, message = event

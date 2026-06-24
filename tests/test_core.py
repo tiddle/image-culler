@@ -1,12 +1,27 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
+import cv2
 
 from image_culler import core
 
 
 def _touch(path: Path) -> Path:
     path.write_bytes(b"x")
+    return path
+
+
+def _write_sharp_image(path: Path) -> Path:
+    """A well-exposed, sharp image (random noise): a guaranteed keeper."""
+    rng = np.random.default_rng(0)
+    img = rng.integers(40, 215, size=(256, 256, 3), dtype=np.uint8)
+    cv2.imwrite(str(path), img)
+    return path
+
+
+def _write_black_image(path: Path) -> Path:
+    cv2.imwrite(str(path), np.zeros((256, 256, 3), dtype=np.uint8))
     return path
 
 
@@ -20,8 +35,7 @@ def test_find_images_top_level_only(tmp_path: Path) -> None:
 
     found = core.find_images(tmp_path)
 
-    names = [p.name for p in found]
-    assert names == ["a.jpg", "b.CR2"]
+    assert [p.name for p in found] == ["a.jpg", "b.CR2"]
 
 
 def test_find_images_is_case_insensitive_on_extension(tmp_path: Path) -> None:
@@ -39,36 +53,46 @@ def test_find_images_rejects_non_folder(tmp_path: Path) -> None:
         core.find_images(f)
 
 
-def test_copy_to_selects_copies_all_and_reports_progress(tmp_path: Path) -> None:
+def test_copy_to_selects_copies_all(tmp_path: Path) -> None:
     images = [_touch(tmp_path / f"img{i}.jpg") for i in range(3)]
     dest = tmp_path / core.SELECTS_DIRNAME
 
-    seen: list[tuple[int, int]] = []
-    copied = core.copy_to_selects(
-        images, dest, on_progress=lambda done, total, _p: seen.append((done, total))
-    )
+    copied = core.copy_to_selects(images, dest)
 
     assert copied == 3
-    assert sorted(p.name for p in dest.iterdir()) == [
-        "img0.jpg",
-        "img1.jpg",
-        "img2.jpg",
-    ]
-    assert seen == [(1, 3), (2, 3), (3, 3)]
+    assert sorted(p.name for p in dest.iterdir()) == ["img0.jpg", "img1.jpg", "img2.jpg"]
 
 
-def test_process_folder_creates_selects_with_keepers(tmp_path: Path) -> None:
-    _touch(tmp_path / "a.jpg")
-    _touch(tmp_path / "b.png")
-    _touch(tmp_path / "skip.txt")
+def test_process_folder_keeps_good_rejects_bad(tmp_path: Path) -> None:
+    _write_sharp_image(tmp_path / "good.png")
+    _write_black_image(tmp_path / "dark.png")
 
-    copied = core.process_folder(tmp_path)
+    summary = core.process_folder(tmp_path)
 
     selects = tmp_path / core.SELECTS_DIRNAME
-    assert copied == 2
-    assert selects.is_dir()
-    assert sorted(p.name for p in selects.iterdir()) == ["a.jpg", "b.png"]
+    assert summary.total == 2
+    assert summary.kept == 1
+    assert summary.rejected == 1
+    assert [p.name for p in selects.iterdir()] == ["good.png"]
+
+
+def test_process_folder_writes_report(tmp_path: Path) -> None:
+    _write_sharp_image(tmp_path / "good.png")
+    _write_black_image(tmp_path / "dark.png")
+
+    summary = core.process_folder(tmp_path)
+
+    report = tmp_path / core.REPORT_FILENAME
+    assert summary.report_path == report
+    text = report.read_text(encoding="utf-8")
+    assert "file,verdict,reason" in text
+    assert "good.png,keep" in text
+    assert "dark.png,reject" in text
+    assert "underexposed" in text
 
 
 def test_process_folder_handles_empty_folder(tmp_path: Path) -> None:
-    assert core.process_folder(tmp_path) == 0
+    summary = core.process_folder(tmp_path)
+    assert summary.total == 0
+    assert summary.kept == 0
+    assert summary.report_path is None
