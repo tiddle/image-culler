@@ -5,6 +5,10 @@ import pytest
 import cv2
 
 from image_culler import core
+from image_culler.detect import Thresholds
+
+# Pipeline tests isolate exposure/blur + IO from the MediaPipe blink stage.
+NO_BLINK = Thresholds(check_blink=False)
 
 
 def _touch(path: Path) -> Path:
@@ -67,7 +71,7 @@ def test_process_folder_keeps_good_rejects_bad(tmp_path: Path) -> None:
     _write_sharp_image(tmp_path / "good.png")
     _write_black_image(tmp_path / "dark.png")
 
-    summary = core.process_folder(tmp_path)
+    summary = core.process_folder(tmp_path, thresholds=NO_BLINK)
 
     selects = tmp_path / core.SELECTS_DIRNAME
     assert summary.total == 2
@@ -80,7 +84,7 @@ def test_process_folder_writes_report(tmp_path: Path) -> None:
     _write_sharp_image(tmp_path / "good.png")
     _write_black_image(tmp_path / "dark.png")
 
-    summary = core.process_folder(tmp_path)
+    summary = core.process_folder(tmp_path, thresholds=NO_BLINK)
 
     report = tmp_path / core.REPORT_FILENAME
     assert summary.report_path == report
@@ -92,7 +96,7 @@ def test_process_folder_writes_report(tmp_path: Path) -> None:
 
 
 def test_process_folder_handles_empty_folder(tmp_path: Path) -> None:
-    summary = core.process_folder(tmp_path)
+    summary = core.process_folder(tmp_path, thresholds=NO_BLINK)
     assert summary.total == 0
     assert summary.kept == 0
     assert summary.report_path is None

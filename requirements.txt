@@ -1,7 +1,5 @@
-# Phase 1 (exposure + blur) runtime dependencies.
+# Runtime dependencies (Phases 1-2).
 numpy>=1.26
 opencv-python>=4.9      # luminance histogram/clipping + Laplacian blur variance
 rawpy>=0.19            # RAW decode via libraw (embedded preview, full fallback)
-
-# Phase 2 (blink / closed-eye) will add:
-#   mediapipe          # face mesh / eye-aspect-ratio
+mediapipe>=0.10        # Phase 2: Face Landmarker -> eye-aspect-ratio blink check

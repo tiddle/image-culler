@@ -45,6 +45,7 @@ class CullSummary:
     kept: int
     rejected: int
     report_path: Path | None
+    blink_used: bool = True  # False if blink detection was requested but unavailable
 
 
 def find_images(folder: Path) -> list[Path]:
@@ -86,7 +87,10 @@ def write_report(report_path: Path, verdicts: Iterable[ImageVerdict]) -> None:
     with open(report_path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(
-            ["file", "verdict", "reason", "brightness", "clip_high", "clip_low", "blur_var"]
+            [
+                "file", "verdict", "reason", "brightness",
+                "clip_high", "clip_low", "blur_var", "faces", "min_ear",
+            ]
         )
         for v in verdicts:
             writer.writerow(
@@ -98,6 +102,8 @@ def write_report(report_path: Path, verdicts: Iterable[ImageVerdict]) -> None:
                     f"{v.clip_high:.4f}",
                     f"{v.clip_low:.4f}",
                     f"{v.blur_var:.1f}",
+                    v.faces,
+                    "" if v.min_ear == float("inf") else f"{v.min_ear:.3f}",
                 ]
             )
 
@@ -145,6 +151,13 @@ def process_folder(
     if workers is None:
         workers = os.cpu_count() or 1
 
+    check_blink = thresholds.check_blink if thresholds is not None else True
+    blink_used = True
+    if check_blink:
+        from .blink import blink_available
+
+        blink_used = blink_available()
+
     dest = folder / SELECTS_DIRNAME
     dest.mkdir(parents=True, exist_ok=True)
 
@@ -160,4 +173,10 @@ def process_folder(
 
     report_path = folder / REPORT_FILENAME
     write_report(report_path, verdicts)
-    return CullSummary(total=total, kept=kept, rejected=total - kept, report_path=report_path)
+    return CullSummary(
+        total=total,
+        kept=kept,
+        rejected=total - kept,
+        report_path=report_path,
+        blink_used=blink_used,
+    )

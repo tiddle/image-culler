@@ -9,6 +9,7 @@ recoverable from the original folder.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +33,8 @@ class Thresholds:
     max_clip_high: float = 0.20       # >20% pixels at ceiling -> blown highlights
     max_clip_low: float = 0.45        # >45% pixels at floor   -> crushed shadows
     min_blur_var: float = 100.0       # Laplacian variance below this -> blurry
+    ear_closed: float = 0.18          # eye-aspect-ratio below this -> closed eye
+    check_blink: bool = True          # run MediaPipe blink detection
 
 
 @dataclass(frozen=True)
@@ -43,6 +46,8 @@ class ImageVerdict:
     clip_high: float
     clip_low: float
     blur_var: float
+    faces: int = 0
+    min_ear: float = math.inf
 
     @property
     def reason_text(self) -> str:
@@ -90,17 +95,17 @@ def _load_raw(path: Path) -> np.ndarray | None:
         return None
 
 
-def _to_analysis_gray(image: np.ndarray) -> np.ndarray:
+def _resize_for_analysis(image: np.ndarray) -> np.ndarray:
     height, width = image.shape[:2]
     longest = max(height, width)
-    if longest > _ANALYSIS_LONG_EDGE:
-        scale = _ANALYSIS_LONG_EDGE / longest
-        image = cv2.resize(
-            image,
-            (max(1, round(width * scale)), max(1, round(height * scale))),
-            interpolation=cv2.INTER_AREA,
-        )
-    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    if longest <= _ANALYSIS_LONG_EDGE:
+        return image
+    scale = _ANALYSIS_LONG_EDGE / longest
+    return cv2.resize(
+        image,
+        (max(1, round(width * scale)), max(1, round(height * scale))),
+        interpolation=cv2.INTER_AREA,
+    )
 
 
 def analyze_image(
@@ -115,7 +120,8 @@ def analyze_image(
         # Could not decode -> keep it; never drop a frame we cannot judge.
         return ImageVerdict(path, True, ("undecodable",), 0.0, 0.0, 0.0, 0.0)
 
-    gray = _to_analysis_gray(image)
+    bgr = _resize_for_analysis(image)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     brightness = float(gray.mean())
     total = gray.size
     clip_high = float(np.count_nonzero(gray >= 250) / total)
@@ -134,6 +140,19 @@ def analyze_image(
     if blur_var < thresholds.min_blur_var:
         reasons.append("blurry")
 
+    # Blink detection is the expensive stage; only run it on frames that would
+    # otherwise be keepers, since an already-rejected frame stays rejected.
+    faces = 0
+    min_ear = math.inf
+    if thresholds.check_blink and not reasons:
+        from .blink import detect_closed_eyes
+
+        blink = detect_closed_eyes(bgr, thresholds.ear_closed)
+        faces = blink.faces
+        min_ear = blink.min_ear
+        if blink.any_closed:
+            reasons.append("eyes-closed")
+
     return ImageVerdict(
         path=path,
         keep=not reasons,
@@ -142,4 +161,6 @@ def analyze_image(
         clip_high=clip_high,
         clip_low=clip_low,
         blur_var=blur_var,
+        faces=faces,
+        min_ear=min_ear,
     )

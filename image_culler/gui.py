@@ -118,12 +118,13 @@ class CullerApp:
             if summary.total == 0:
                 self.status_label.config(text="No images found in that folder.")
             else:
-                self.status_label.config(
-                    text=(
-                        f"Done: {summary.kept} keepers to selects/, "
-                        f"{summary.rejected} flagged. See report.csv."
-                    )
+                text = (
+                    f"Done: {summary.kept} keepers to selects/, "
+                    f"{summary.rejected} flagged. See report.csv."
                 )
+                if not summary.blink_used:
+                    text += " (blink check unavailable)"
+                self.status_label.config(text=text)
             self._finish()
         elif kind == "error":
             _, message = event
