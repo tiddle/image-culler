@@ -1,0 +1,6 @@
+# Phase 0 is standard-library only (tkinter, shutil, pathlib, multiprocessing).
+# Later phases add:
+#   opencv-python   # Phase 1: exposure histogram + Laplacian blur
+#   numpy           # Phase 1: pixel math
+#   rawpy           # Phase 1: RAW decode + embedded preview
+#   mediapipe       # Phase 2: face mesh / eye-aspect-ratio blink detection
