@@ -37,14 +37,37 @@ The Face Landmarker model ships in `image_culler/assets/face_landmarker.task`.
 - **Phase 1** — exposure + blur via OpenCV; keepers only; `report.csv`. *Done.*
 - **Phase 2** — blink / closed-eye detection (MediaPipe Face Landmarker, eye
   aspect ratio). *Done.*
-- **Phase 3** — threshold tuning on a real shoot; package a single-file Windows
-  `.exe` via PyInstaller (bundle the `.task` model).
+- **Phase 3** — package a single-file Windows `.exe` via PyInstaller (bundles
+  the `.task` model + MediaPipe runtime). *Build setup done* (`image-culler.spec`,
+  `build_windows.ps1`); run it on Windows to produce `dist\ImageCuller.exe`.
+  Threshold tuning on a real shoot still pending.
 
 ## Run from source
 
 ```bash
 python -m image_culler
 ```
+
+## Build a single-file Windows `.exe`
+
+PyInstaller is not a cross-compiler, so the `.exe` must be built **on Windows**.
+From the repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_windows.ps1
+```
+
+Or manually:
+
+```powershell
+pip install -r requirements.txt -r requirements-build.txt
+pyinstaller image-culler.spec
+```
+
+The result is `dist\ImageCuller.exe`: self-contained (no Python install needed),
+with the Face Landmarker model and MediaPipe's runtime data bundled inside. The
+spec (`image-culler.spec`) collects `mediapipe`'s graph configs and native libs
+in addition to our `assets/face_landmarker.task`.
 
 ## Tests
 
