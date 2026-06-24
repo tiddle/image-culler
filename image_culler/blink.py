@@ -15,6 +15,7 @@ silently dropping the whole blink check.
 from __future__ import annotations
 
 import math
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,13 @@ class BlinkResult:
 
 
 def model_path() -> Path:
+    # AIDEV-NOTE: under a PyInstaller onefile build the package data is
+    # extracted to sys._MEIPASS; fall back to the source-tree location dev runs.
+    base = getattr(sys, "_MEIPASS", None)
+    if base is not None:
+        bundled = Path(base) / "image_culler" / "assets" / _MODEL_FILENAME
+        if bundled.is_file():
+            return bundled
     return Path(__file__).resolve().parent / "assets" / _MODEL_FILENAME
 
 
