@@ -35,6 +35,10 @@ class Thresholds:
     min_blur_var: float = 100.0       # Laplacian variance below this -> blurry
     ear_closed: float = 0.18          # eye-aspect-ratio below this -> closed eye
     check_blink: bool = True          # run MediaPipe blink detection
+    # Phase 4 burst grouping.
+    group_bursts: bool = True         # collapse near-duplicate bursts to one keeper
+    burst_time_gap: float = 2.0       # max seconds between frames in one burst
+    burst_phash_distance: int = 10    # max pHash Hamming distance within a burst
 
 
 @dataclass(frozen=True)
@@ -48,10 +52,22 @@ class ImageVerdict:
     blur_var: float
     faces: int = 0
     min_ear: float = math.inf
+    phash: int = 0       # 64-bit perceptual hash; 0 when undecodable
+    group_id: int = 0    # Phase 4: burst group; assigned in the grouping pass
+    group_rank: int = 0  # 1 = the kept frame of the group; 2+ = duplicates
 
     @property
     def reason_text(self) -> str:
         return "; ".join(self.reasons) if self.reasons else "ok"
+
+    @property
+    def kind(self) -> str:
+        """Verdict class used for sidecar labels: keep / duplicate / reject."""
+        if self.keep:
+            return "keep"
+        if "duplicate" in self.reasons:
+            return "duplicate"
+        return "reject"
 
 
 def load_image(path: Path) -> np.ndarray | None:
@@ -95,6 +111,34 @@ def _load_raw(path: Path) -> np.ndarray | None:
         return None
 
 
+_PHASH_SIZE = 32  # DCT input edge; low-frequency 8x8 block becomes the hash
+
+
+def perceptual_hash(gray: np.ndarray) -> int:
+    """Classic 64-bit pHash from a grayscale image.
+
+    Downscale to 32x32, take the DCT, keep the low-frequency 8x8 block, and
+    threshold each coefficient against the block median (excluding the DC term).
+    Deterministic and tolerant of exposure/scale, so near-duplicate burst frames
+    hash close together (small Hamming distance).
+    """
+    small = cv2.resize(
+        gray, (_PHASH_SIZE, _PHASH_SIZE), interpolation=cv2.INTER_AREA
+    ).astype(np.float32)
+    block = cv2.dct(small)[:8, :8]
+    flat = block.flatten()
+    median = float(np.median(flat[1:]))  # drop DC so it doesn't bias the median
+    bits = 0
+    for value in flat:
+        bits = (bits << 1) | int(value > median)
+    return bits
+
+
+def hamming_distance(a: int, b: int) -> int:
+    """Number of differing bits between two pHashes."""
+    return bin(a ^ b).count("1")
+
+
 def _resize_for_analysis(image: np.ndarray) -> np.ndarray:
     height, width = image.shape[:2]
     longest = max(height, width)
@@ -127,6 +171,7 @@ def analyze_image(
     clip_high = float(np.count_nonzero(gray >= 250) / total)
     clip_low = float(np.count_nonzero(gray <= 5) / total)
     blur_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    phash = perceptual_hash(gray)
 
     reasons: list[str] = []
     if brightness < thresholds.min_brightness:
@@ -163,4 +208,5 @@ def analyze_image(
         blur_var=blur_var,
         faces=faces,
         min_ear=min_ear,
+        phash=phash,
     )

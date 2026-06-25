@@ -1,7 +1,8 @@
 """Minimal one-window Tkinter GUI for the image culler.
 
-Phase 0: Choose a folder, hit Start, watch a progress bar, see a done summary.
-Detection is not wired in yet — Start copies every image into ``selects/``.
+Choose a folder, hit Start, watch a progress bar, see a done summary. Scoring
+(exposure + blur + blink) and optional burst grouping run on a worker thread;
+keepers are copied into ``selects/`` and ``report.csv`` audits every frame.
 """
 
 from __future__ import annotations
@@ -19,9 +20,9 @@ _POLL_MS = 100
 
 
 class CullerApp:
-    """A single window driving the Phase 0 copy-through pipeline.
+    """A single window driving the cull pipeline.
 
-    AIDEV-NOTE: Tkinter is not thread-safe — only the main thread may touch
+    AIDEV-NOTE: Tkinter is not thread-safe - only the main thread may touch
     widgets. The worker thread therefore reports progress onto a queue.Queue,
     and the UI drains that queue on the Tk event loop via root.after().
     """
@@ -33,7 +34,7 @@ class CullerApp:
         self.worker: threading.Thread | None = None
 
         root.title(_WINDOW_TITLE)
-        root.geometry("460x200")
+        root.geometry("460x240")
         root.resizable(False, False)
 
         frame = ttk.Frame(root, padding=16)
@@ -48,6 +49,12 @@ class CullerApp:
             frame, text="No folder chosen", wraplength=420, foreground="#666"
         )
         self.folder_label.pack(fill="x", pady=(8, 12))
+
+        self.group_bursts = tk.BooleanVar(value=True)
+        self.group_check = ttk.Checkbutton(
+            frame, text="Group bursts (keep best)", variable=self.group_bursts
+        )
+        self.group_check.pack(fill="x", pady=(0, 8))
 
         self.start_btn = ttk.Button(
             frame, text="Start", command=self._start, state="disabled"
@@ -77,6 +84,8 @@ class CullerApp:
         self.start_btn.config(state="disabled")
         self.status_label.config(text="Scanning...")
         self.progress.config(value=0)
+        # Read Tk vars here on the main thread; the worker must not touch widgets.
+        self._group_bursts = self.group_bursts.get()
 
         self.worker = threading.Thread(target=self._run, daemon=True)
         self.worker.start()
@@ -87,10 +96,13 @@ class CullerApp:
         folder = self.folder
         assert folder is not None
         try:
+            from .detect import Thresholds
+
             def on_progress(done: int, total: int, _path: Path) -> None:
                 self.events.put(("progress", done, total))
 
-            summary = core.process_folder(folder, on_progress)
+            thresholds = Thresholds(group_bursts=self._group_bursts)
+            summary = core.process_folder(folder, on_progress, thresholds=thresholds)
             self.events.put(("done", summary))
         except Exception as exc:  # noqa: BLE001 - surfaced to the user as text
             self.events.put(("error", str(exc)))
@@ -118,9 +130,11 @@ class CullerApp:
             if summary.total == 0:
                 self.status_label.config(text="No images found in that folder.")
             else:
+                flagged = summary.rejected - summary.duplicates
                 text = (
                     f"Done: {summary.kept} keepers to selects/, "
-                    f"{summary.rejected} flagged. See report.csv."
+                    f"{summary.duplicates} duplicates collapsed, "
+                    f"{flagged} flagged. See report.csv."
                 )
                 if not summary.blink_used:
                     text += " (blink check unavailable)"

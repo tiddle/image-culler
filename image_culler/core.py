@@ -46,6 +46,7 @@ class CullSummary:
     rejected: int
     report_path: Path | None
     blink_used: bool = True  # False if blink detection was requested but unavailable
+    duplicates: int = 0      # rejected frames that lost a burst (Phase 4)
 
 
 def find_images(folder: Path) -> list[Path]:
@@ -90,13 +91,14 @@ def write_report(report_path: Path, verdicts: Iterable[ImageVerdict]) -> None:
             [
                 "file", "verdict", "reason", "brightness",
                 "clip_high", "clip_low", "blur_var", "faces", "min_ear",
+                "group_id", "group_rank",
             ]
         )
         for v in verdicts:
             writer.writerow(
                 [
                     v.path.name,
-                    "keep" if v.keep else "reject",
+                    v.kind,
                     v.reason_text,
                     f"{v.brightness:.1f}",
                     f"{v.clip_high:.4f}",
@@ -104,6 +106,8 @@ def write_report(report_path: Path, verdicts: Iterable[ImageVerdict]) -> None:
                     f"{v.blur_var:.1f}",
                     v.faces,
                     "" if v.min_ear == float("inf") else f"{v.min_ear:.3f}",
+                    v.group_id,
+                    v.group_rank,
                 ]
             )
 
@@ -162,14 +166,28 @@ def process_folder(
     dest.mkdir(parents=True, exist_ok=True)
 
     verdicts: list[ImageVerdict] = []
-    kept = 0
     for index, verdict in enumerate(_iter_verdicts(images, thresholds, workers), start=1):
-        if verdict.keep:
-            shutil.copy2(verdict.path, dest / verdict.path.name)
-            kept += 1
         verdicts.append(verdict)
         if on_progress is not None:
             on_progress(index, total, verdict.path)
+
+    # Burst grouping is a post-pass: it needs every frame's phash before it can
+    # collapse near-duplicates, so copying waits until the verdicts settle.
+    group_bursts = thresholds.group_bursts if thresholds is not None else True
+    if group_bursts:
+        from .detect import Thresholds
+        from .grouping import group_bursts as _group
+
+        verdicts = _group(verdicts, thresholds or Thresholds())
+
+    kept = 0
+    duplicates = 0
+    for verdict in verdicts:
+        if verdict.keep:
+            shutil.copy2(verdict.path, dest / verdict.path.name)
+            kept += 1
+        elif verdict.kind == "duplicate":
+            duplicates += 1
 
     report_path = folder / REPORT_FILENAME
     write_report(report_path, verdicts)
@@ -179,4 +197,5 @@ def process_folder(
         rejected=total - kept,
         report_path=report_path,
         blink_used=blink_used,
+        duplicates=duplicates,
     )
