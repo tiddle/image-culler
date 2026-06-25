@@ -47,6 +47,8 @@ class CullSummary:
     report_path: Path | None
     blink_used: bool = True  # False if blink detection was requested but unavailable
     duplicates: int = 0      # rejected frames that lost a burst (Phase 4)
+    sidecars_written: int = 0  # XMP sidecars written or merged (Phase 5)
+    sidecars_skipped: int = 0  # existing sidecars left untouched (unparseable)
 
 
 def find_images(folder: Path) -> list[Path]:
@@ -140,11 +142,17 @@ def process_folder(
     on_progress: ProgressCallback | None = None,
     thresholds: Thresholds | None = None,
     workers: int | None = None,
+    output_mode: str = "copy",
 ) -> CullSummary:
     """Phase 1 pipeline: score every top-level image, copy keepers to ``selects/``.
 
     Writes ``report.csv`` next to ``selects/``. Returns a :class:`CullSummary`.
     ``workers`` defaults to the CPU count; pass 1 to force a serial scan.
+
+    ``output_mode`` selects how the verdict is delivered (Phase 5):
+    ``"copy"`` copies keepers to ``selects/`` (default), ``"sidecar"`` writes XMP
+    sidecars next to RAW files (JPEG keepers still fall back to a ``selects/``
+    copy, since LR does not read sidecars for JPEG), and ``"both"`` does both.
     """
     folder = Path(folder)
     images = find_images(folder)
@@ -180,14 +188,32 @@ def process_folder(
 
         verdicts = _group(verdicts, thresholds or Thresholds())
 
+    write_copies = output_mode in ("copy", "both")
+    write_sidecars = output_mode in ("sidecar", "both")
+    if write_sidecars:
+        from .xmp import write_sidecar
+
     kept = 0
     duplicates = 0
+    sidecars_written = 0
+    sidecars_skipped = 0
     for verdict in verdicts:
         if verdict.keep:
-            shutil.copy2(verdict.path, dest / verdict.path.name)
             kept += 1
         elif verdict.kind == "duplicate":
             duplicates += 1
+
+        is_raw = verdict.path.suffix.lower() in _RAW_EXTENSIONS
+        # Copy keepers to selects/ when copying, and as a fallback for JPEG
+        # keepers in sidecar mode (LR only reads .xmp sidecars for RAW).
+        if verdict.keep and (write_copies or (write_sidecars and not is_raw)):
+            shutil.copy2(verdict.path, dest / verdict.path.name)
+        if write_sidecars and is_raw:
+            status = write_sidecar(verdict)
+            if status == "skipped":
+                sidecars_skipped += 1
+            else:
+                sidecars_written += 1
 
     report_path = folder / REPORT_FILENAME
     write_report(report_path, verdicts)
@@ -198,4 +224,6 @@ def process_folder(
         report_path=report_path,
         blink_used=blink_used,
         duplicates=duplicates,
+        sidecars_written=sidecars_written,
+        sidecars_skipped=sidecars_skipped,
     )

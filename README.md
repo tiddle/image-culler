@@ -7,9 +7,11 @@ by design: the originals are never moved or deleted.
 
 ## Status
 
-**Phase 2 — exposure + blur + blink detection.** Point it at a folder; it scores
-every top-level image, copies the keepers into `selects/`, and writes
-`report.csv` auditing every frame. Scoring runs across CPU cores
+**Phase 5 — exposure + blur + blink + burst grouping + XMP sidecar output.**
+Point it at a folder; it scores every top-level image, collapses near-duplicate
+bursts down to a single best keeper, and either copies the keepers into
+`selects/` or writes XMP sidecars that Lightroom / Capture One read. It always
+writes `report.csv` auditing every frame. Scoring runs across CPU cores
 (`multiprocessing`) with a serial fallback. Tuning is aggressive on purpose
 (commercial use, false positives are acceptable).
 
@@ -31,6 +33,34 @@ live in `image_culler/detect.py` (`Thresholds`).
 
 The Face Landmarker model ships in `image_culler/assets/face_landmarker.task`.
 
+## Burst grouping
+
+Cameras shooting continuous bursts produce many near-identical frames. The culler
+walks frames in capture order (EXIF `DateTimeOriginal`, falling back to filename
+order) and joins adjacent frames into a burst when they are both close in time
+*and* visually similar (a perceptual-hash check). It keeps the single best frame
+of each burst (sharpest, then best-exposed, then eyes-most-open) and marks the
+rest `duplicate`. RAW+JPEG pairs of the same shot are treated as one capture and
+never split. `report.csv` records the `group_id` and `group_rank` of every frame.
+Turn it off with the **Group bursts** checkbox.
+
+## Output: `selects/` copy or XMP sidecars
+
+Three output modes (chosen in the window):
+
+- **Copy to `selects/`** (default) — copies keepers into a `selects/` subfolder.
+- **XMP sidecars** — writes a sibling `.xmp` next to each RAW carrying the verdict
+  as `xmp:Rating` + colour `xmp:Label` (Green keep / Red reject / Yellow
+  duplicate) plus `Culled:*` keywords, so you filter the cull inside Lightroom or
+  Capture One. JPEG keepers still fall back to a `selects/` copy, since LR only
+  reads sidecars for RAW. Existing sidecars are *merged*, never clobbered: your
+  own ratings and keywords are preserved, and an unreadable sidecar is skipped and
+  reported rather than overwritten.
+- **Both** — copies keepers *and* writes RAW sidecars.
+
+In Lightroom you may need *Metadata ▸ Read Metadata from File* (or "automatically
+write/read XMP" enabled) for sidecars to register.
+
 ## Roadmap
 
 - **Phase 0** — Tkinter window, folder picker, progress bar, copy-through. *Done.*
@@ -41,6 +71,10 @@ The Face Landmarker model ships in `image_culler/assets/face_landmarker.task`.
   the `.task` model + MediaPipe runtime). *Build setup done* (`image-culler.spec`,
   `build_windows.ps1`); run it on Windows to produce `dist\ImageCuller.exe`.
   Threshold tuning on a real shoot still pending.
+- **Phase 4** — burst / near-duplicate grouping; keep the best frame of each
+  burst. *Done.*
+- **Phase 5** — Lightroom / Capture One XMP sidecar output with a `copy` /
+  `sidecar` / `both` toggle. *Done.*
 
 ## Run from source
 
@@ -68,6 +102,18 @@ The result is `dist\ImageCuller.exe`: self-contained (no Python install needed),
 with the Face Landmarker model and MediaPipe's runtime data bundled inside. The
 spec (`image-culler.spec`) collects `mediapipe`'s graph configs and native libs
 in addition to our `assets/face_landmarker.task`.
+
+### …or let GitHub Actions build it
+
+`.github/workflows/release.yml` builds the exe on a Windows runner. Push a
+version tag to publish a GitHub Release with the exe attached:
+
+```bash
+git tag v0.3.0 && git push origin v0.3.0
+```
+
+Or run the **Build & Release** workflow manually (`workflow_dispatch`) to get the
+exe as a downloadable build artifact without cutting a release.
 
 ## Tests
 
