@@ -95,6 +95,35 @@ def test_process_folder_writes_report(tmp_path: Path) -> None:
     assert "underexposed" in text
 
 
+def test_process_folder_collapses_a_burst_to_one_keeper(tmp_path: Path) -> None:
+    rng = np.random.default_rng(0)
+    frame = rng.integers(40, 215, size=(256, 256, 3), dtype=np.uint8)
+    for name in ("b1.png", "b2.png", "b3.png"):
+        cv2.imwrite(str(tmp_path / name), frame)
+
+    summary = core.process_folder(tmp_path, thresholds=NO_BLINK)
+
+    selects = tmp_path / core.SELECTS_DIRNAME
+    assert summary.kept == 1
+    assert len([p for p in selects.iterdir()]) == 1
+    report = (tmp_path / core.REPORT_FILENAME).read_text(encoding="utf-8")
+    assert "group_id,group_rank" in report
+    assert "duplicate" in report
+
+
+def test_grouping_can_be_disabled(tmp_path: Path) -> None:
+    rng = np.random.default_rng(0)
+    frame = rng.integers(40, 215, size=(256, 256, 3), dtype=np.uint8)
+    for name in ("b1.png", "b2.png", "b3.png"):
+        cv2.imwrite(str(tmp_path / name), frame)
+
+    summary = core.process_folder(
+        tmp_path, thresholds=Thresholds(check_blink=False, group_bursts=False)
+    )
+
+    assert summary.kept == 3
+
+
 def test_process_folder_handles_empty_folder(tmp_path: Path) -> None:
     summary = core.process_folder(tmp_path, thresholds=NO_BLINK)
     assert summary.total == 0
