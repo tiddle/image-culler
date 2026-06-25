@@ -124,6 +124,51 @@ def test_grouping_can_be_disabled(tmp_path: Path) -> None:
     assert summary.kept == 3
 
 
+def test_output_mode_sidecar_writes_xmp_for_raw_and_copies_jpeg(tmp_path: Path) -> None:
+    _write_sharp_image(tmp_path / "shot.png")          # JPEG-like keeper
+    (tmp_path / "raw_shot.dng").write_bytes(b"not a real raw")  # undecodable -> keep
+
+    summary = core.process_folder(
+        tmp_path,
+        thresholds=Thresholds(check_blink=False, group_bursts=False),
+        output_mode="sidecar",
+    )
+
+    selects = tmp_path / core.SELECTS_DIRNAME
+    # RAW keeper -> sidecar, never copied; JPEG keeper -> selects fallback copy.
+    assert (tmp_path / "raw_shot.xmp").exists()
+    assert summary.sidecars_written == 1
+    assert not (selects / "raw_shot.dng").exists()
+    assert (selects / "shot.png").exists()
+    assert not (tmp_path / "shot.xmp").exists()
+
+
+def test_output_mode_both_copies_and_writes_sidecar(tmp_path: Path) -> None:
+    _write_sharp_image(tmp_path / "shot.png")
+    (tmp_path / "raw_shot.dng").write_bytes(b"not a real raw")
+
+    summary = core.process_folder(
+        tmp_path,
+        thresholds=Thresholds(check_blink=False, group_bursts=False),
+        output_mode="both",
+    )
+
+    selects = tmp_path / core.SELECTS_DIRNAME
+    assert (selects / "shot.png").exists()
+    assert (selects / "raw_shot.dng").exists()
+    assert (tmp_path / "raw_shot.xmp").exists()
+    assert summary.sidecars_written == 1
+
+
+def test_output_mode_copy_writes_no_sidecars(tmp_path: Path) -> None:
+    _write_sharp_image(tmp_path / "good.png")
+
+    summary = core.process_folder(tmp_path, thresholds=NO_BLINK)
+
+    assert summary.sidecars_written == 0
+    assert not (tmp_path / "good.xmp").exists()
+
+
 def test_process_folder_handles_empty_folder(tmp_path: Path) -> None:
     summary = core.process_folder(tmp_path, thresholds=NO_BLINK)
     assert summary.total == 0

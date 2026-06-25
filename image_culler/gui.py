@@ -1,8 +1,8 @@
 """Minimal one-window Tkinter GUI for the image culler.
 
-Choose a folder, hit Start, watch a progress bar, see a done summary. Scoring
-(exposure + blur + blink) and optional burst grouping run on a worker thread;
-keepers are copied into ``selects/`` and ``report.csv`` audits every frame.
+Choose a folder, pick an output mode, hit Start, watch a progress bar, and read a
+done summary. The scan, burst grouping, and copy/sidecar output all run on a
+worker thread so the window stays responsive.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ _POLL_MS = 100
 class CullerApp:
     """A single window driving the cull pipeline.
 
-    AIDEV-NOTE: Tkinter is not thread-safe - only the main thread may touch
+    AIDEV-NOTE: Tkinter is not thread-safe — only the main thread may touch
     widgets. The worker thread therefore reports progress onto a queue.Queue,
     and the UI drains that queue on the Tk event loop via root.after().
     """
@@ -34,7 +34,7 @@ class CullerApp:
         self.worker: threading.Thread | None = None
 
         root.title(_WINDOW_TITLE)
-        root.geometry("460x240")
+        root.geometry("460x290")
         root.resizable(False, False)
 
         frame = ttk.Frame(root, padding=16)
@@ -55,6 +55,20 @@ class CullerApp:
             frame, text="Group bursts (keep best)", variable=self.group_bursts
         )
         self.group_check.pack(fill="x", pady=(0, 8))
+
+        output_row = ttk.Frame(frame)
+        output_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(output_row, text="Output:").pack(side="left")
+        # "copy" keepers to selects/, "sidecar" writes XMP for RAW, "both" does both.
+        self.output_mode = tk.StringVar(value="copy")
+        for text, value in (
+            ("Copy to selects/", "copy"),
+            ("XMP sidecars", "sidecar"),
+            ("Both", "both"),
+        ):
+            ttk.Radiobutton(
+                output_row, text=text, value=value, variable=self.output_mode
+            ).pack(side="left", padx=(8, 0))
 
         self.start_btn = ttk.Button(
             frame, text="Start", command=self._start, state="disabled"
@@ -86,6 +100,7 @@ class CullerApp:
         self.progress.config(value=0)
         # Read Tk vars here on the main thread; the worker must not touch widgets.
         self._group_bursts = self.group_bursts.get()
+        self._output_mode = self.output_mode.get()
 
         self.worker = threading.Thread(target=self._run, daemon=True)
         self.worker.start()
@@ -102,7 +117,9 @@ class CullerApp:
                 self.events.put(("progress", done, total))
 
             thresholds = Thresholds(group_bursts=self._group_bursts)
-            summary = core.process_folder(folder, on_progress, thresholds=thresholds)
+            summary = core.process_folder(
+                folder, on_progress, thresholds=thresholds, output_mode=self._output_mode
+            )
             self.events.put(("done", summary))
         except Exception as exc:  # noqa: BLE001 - surfaced to the user as text
             self.events.put(("error", str(exc)))
@@ -132,10 +149,14 @@ class CullerApp:
             else:
                 flagged = summary.rejected - summary.duplicates
                 text = (
-                    f"Done: {summary.kept} keepers to selects/, "
+                    f"Done: {summary.kept} keepers, "
                     f"{summary.duplicates} duplicates collapsed, "
                     f"{flagged} flagged. See report.csv."
                 )
+                if summary.sidecars_written:
+                    text += f" {summary.sidecars_written} XMP sidecars written."
+                if summary.sidecars_skipped:
+                    text += f" {summary.sidecars_skipped} sidecars skipped (unreadable)."
                 if not summary.blink_used:
                     text += " (blink check unavailable)"
                 self.status_label.config(text=text)
