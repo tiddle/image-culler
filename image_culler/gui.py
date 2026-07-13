@@ -34,7 +34,7 @@ class CullerApp:
         self.worker: threading.Thread | None = None
 
         root.title(_WINDOW_TITLE)
-        root.geometry("460x290")
+        root.geometry("460x320")
         root.resizable(False, False)
 
         frame = ttk.Frame(root, padding=16)
@@ -55,6 +55,15 @@ class CullerApp:
             frame, text="Group bursts (keep best)", variable=self.group_bursts
         )
         self.group_check.pack(fill="x", pady=(0, 8))
+
+        # Off by default: this physically moves originals out of the source folder.
+        self.move_rejects = tk.BooleanVar(value=False)
+        self.move_check = ttk.Checkbutton(
+            frame,
+            text="Move rejects to rejected/ (removes them from source)",
+            variable=self.move_rejects,
+        )
+        self.move_check.pack(fill="x", pady=(0, 8))
 
         output_row = ttk.Frame(frame)
         output_row.pack(fill="x", pady=(0, 8))
@@ -101,6 +110,7 @@ class CullerApp:
         # Read Tk vars here on the main thread; the worker must not touch widgets.
         self._group_bursts = self.group_bursts.get()
         self._output_mode = self.output_mode.get()
+        self._move_rejects = self.move_rejects.get()
 
         self.worker = threading.Thread(target=self._run, daemon=True)
         self.worker.start()
@@ -118,7 +128,11 @@ class CullerApp:
 
             thresholds = Thresholds(group_bursts=self._group_bursts)
             summary = core.process_folder(
-                folder, on_progress, thresholds=thresholds, output_mode=self._output_mode
+                folder,
+                on_progress,
+                thresholds=thresholds,
+                output_mode=self._output_mode,
+                move_rejects=self._move_rejects,
             )
             self.events.put(("done", summary))
         except Exception as exc:  # noqa: BLE001 - surfaced to the user as text
@@ -153,6 +167,8 @@ class CullerApp:
                     f"{summary.duplicates} duplicates collapsed, "
                     f"{flagged} flagged. See report.csv."
                 )
+                if summary.rejects_moved:
+                    text += f" {summary.rejects_moved} moved to rejected/."
                 if summary.sidecars_written:
                     text += f" {summary.sidecars_written} XMP sidecars written."
                 if summary.sidecars_skipped:

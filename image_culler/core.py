@@ -2,8 +2,9 @@
 
 Phase 1: enumerate the top level of a folder, score each image for exposure and
 blur, copy only the keepers into ``selects/``, and write ``report.csv`` so the
-cull can be audited. Nothing is moved or deleted; rejects stay in the original
-folder.
+cull can be audited. By default nothing is moved or deleted; rejects stay in the
+original folder. Optionally (``move_rejects``) every non-keeper is moved out into
+``rejected/`` instead, physically sorting the folder.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ _RAW_EXTENSIONS = frozenset(
 IMAGE_EXTENSIONS = _RASTER_EXTENSIONS | _RAW_EXTENSIONS
 
 SELECTS_DIRNAME = "selects"
+REJECTS_DIRNAME = "rejected"
 REPORT_FILENAME = "report.csv"
 
 # Called after each image with (done, total, current_path).
@@ -49,14 +51,16 @@ class CullSummary:
     duplicates: int = 0      # rejected frames that lost a burst (Phase 4)
     sidecars_written: int = 0  # XMP sidecars written or merged (Phase 5)
     sidecars_skipped: int = 0  # existing sidecars left untouched (unparseable)
+    rejects_moved: int = 0     # non-keepers relocated to rejected/ (move_rejects)
 
 
 def find_images(folder: Path) -> list[Path]:
     """Return image files in the top level of ``folder``, sorted by name.
 
     Non-recursive by design (Carlo, 2026-06-24): only the top level of the
-    chosen folder is scanned. The ``selects/`` output dir, if present, is
-    skipped so re-runs do not fold prior outputs back into the input.
+    chosen folder is scanned. The ``selects/`` and ``rejected/`` output dirs, if
+    the chosen folder is one of them, are skipped so re-runs do not fold prior
+    outputs back into the input.
     """
     folder = Path(folder)
     if not folder.is_dir():
@@ -67,7 +71,7 @@ def find_images(folder: Path) -> list[Path]:
         for entry in folder.iterdir()
         if entry.is_file()
         and entry.suffix.lower() in IMAGE_EXTENSIONS
-        and entry.parent.name != SELECTS_DIRNAME
+        and entry.parent.name not in (SELECTS_DIRNAME, REJECTS_DIRNAME)
     ]
     return sorted(images, key=lambda p: p.name.lower())
 
@@ -143,6 +147,7 @@ def process_folder(
     thresholds: Thresholds | None = None,
     workers: int | None = None,
     output_mode: str = "copy",
+    move_rejects: bool = False,
 ) -> CullSummary:
     """Phase 1 pipeline: score every top-level image, copy keepers to ``selects/``.
 
@@ -153,6 +158,11 @@ def process_folder(
     ``"copy"`` copies keepers to ``selects/`` (default), ``"sidecar"`` writes XMP
     sidecars next to RAW files (JPEG keepers still fall back to a ``selects/``
     copy, since LR does not read sidecars for JPEG), and ``"both"`` does both.
+
+    ``move_rejects`` (default off) physically moves every non-keeper (quality
+    rejects and collapsed burst duplicates alike) out of the source folder into
+    ``rejected/``. This is destructive: the originals leave the source folder, so
+    they receive no ``selects/`` copy or sidecar.
     """
     folder = Path(folder)
     images = find_images(folder)
@@ -193,8 +203,11 @@ def process_folder(
     if write_sidecars:
         from .xmp import write_sidecar
 
+    rejects_dest = folder / REJECTS_DIRNAME
+
     kept = 0
     duplicates = 0
+    rejects_moved = 0
     sidecars_written = 0
     sidecars_skipped = 0
     for verdict in verdicts:
@@ -204,6 +217,15 @@ def process_folder(
             duplicates += 1
 
         is_raw = verdict.path.suffix.lower() in _RAW_EXTENSIONS
+
+        # Rejects leave the source folder entirely when move_rejects is on, so
+        # they skip the copy/sidecar output that only applies to retained files.
+        if move_rejects and not verdict.keep:
+            rejects_dest.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(verdict.path), str(rejects_dest / verdict.path.name))
+            rejects_moved += 1
+            continue
+
         # Copy keepers to selects/ when copying, and as a fallback for JPEG
         # keepers in sidecar mode (LR only reads .xmp sidecars for RAW).
         if verdict.keep and (write_copies or (write_sidecars and not is_raw)):
@@ -226,4 +248,5 @@ def process_folder(
         duplicates=duplicates,
         sidecars_written=sidecars_written,
         sidecars_skipped=sidecars_skipped,
+        rejects_moved=rejects_moved,
     )
