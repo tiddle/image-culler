@@ -34,7 +34,7 @@ class CullerApp:
         self.worker: threading.Thread | None = None
 
         root.title(_WINDOW_TITLE)
-        root.geometry("460x320")
+        root.geometry("460x400")
         root.resizable(False, False)
 
         frame = ttk.Frame(root, padding=16)
@@ -56,28 +56,20 @@ class CullerApp:
         )
         self.group_check.pack(fill="x", pady=(0, 8))
 
-        # Off by default: this physically moves originals out of the source folder.
-        self.move_rejects = tk.BooleanVar(value=False)
-        self.move_check = ttk.Checkbutton(
-            frame,
-            text="Move rejects to rejected/ (removes them from source)",
-            variable=self.move_rejects,
-        )
-        self.move_check.pack(fill="x", pady=(0, 8))
-
-        output_row = ttk.Frame(frame)
-        output_row.pack(fill="x", pady=(0, 8))
-        ttk.Label(output_row, text="Output:").pack(side="left")
-        # "copy" keepers to selects/, "sidecar" writes XMP for RAW, "both" does both.
+        ttk.Label(frame, text="Output:").pack(fill="x", pady=(4, 2))
+        # One mutually-exclusive choice. "copy" keepers to selects/, "sidecar"
+        # writes XMP for RAW, "both" does both, "move" relocates rejects out to
+        # rejected/ (destructive) and leaves keepers in place.
         self.output_mode = tk.StringVar(value="copy")
         for text, value in (
-            ("Copy to selects/", "copy"),
-            ("XMP sidecars", "sidecar"),
-            ("Both", "both"),
+            ("Copy keepers to selects/", "copy"),
+            ("XMP sidecars (Lightroom)", "sidecar"),
+            ("Both (copy + sidecars)", "both"),
+            ("Move rejects to rejected/ (removes them from source)", "move"),
         ):
             ttk.Radiobutton(
-                output_row, text=text, value=value, variable=self.output_mode
-            ).pack(side="left", padx=(8, 0))
+                frame, text=text, value=value, variable=self.output_mode
+            ).pack(fill="x", anchor="w", pady=(0, 2))
 
         self.start_btn = ttk.Button(
             frame, text="Start", command=self._start, state="disabled"
@@ -110,7 +102,6 @@ class CullerApp:
         # Read Tk vars here on the main thread; the worker must not touch widgets.
         self._group_bursts = self.group_bursts.get()
         self._output_mode = self.output_mode.get()
-        self._move_rejects = self.move_rejects.get()
 
         self.worker = threading.Thread(target=self._run, daemon=True)
         self.worker.start()
@@ -132,7 +123,6 @@ class CullerApp:
                 on_progress,
                 thresholds=thresholds,
                 output_mode=self._output_mode,
-                move_rejects=self._move_rejects,
             )
             self.events.put(("done", summary))
         except Exception as exc:  # noqa: BLE001 - surfaced to the user as text

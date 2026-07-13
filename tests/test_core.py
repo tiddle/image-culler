@@ -176,23 +176,24 @@ def test_process_folder_handles_empty_folder(tmp_path: Path) -> None:
     assert summary.report_path is None
 
 
-def test_move_rejects_relocates_non_keepers(tmp_path: Path) -> None:
+def test_output_mode_move_relocates_rejects_and_leaves_keepers(tmp_path: Path) -> None:
     _write_sharp_image(tmp_path / "good.png")
     _write_black_image(tmp_path / "dark.png")
 
-    summary = core.process_folder(tmp_path, thresholds=NO_BLINK, move_rejects=True)
+    summary = core.process_folder(tmp_path, thresholds=NO_BLINK, output_mode="move")
 
     selects = tmp_path / core.SELECTS_DIRNAME
     rejects = tmp_path / core.REJECTS_DIRNAME
     assert summary.rejects_moved == 1
-    assert [p.name for p in selects.iterdir()] == ["good.png"]
+    # Move mode sorts in place: keepers stay put, never copied to selects/.
+    assert not selects.exists()
     assert [p.name for p in rejects.iterdir()] == ["dark.png"]
     # The reject is moved, not copied: it is gone from the source folder.
     assert not (tmp_path / "dark.png").exists()
     assert (tmp_path / "good.png").exists()
 
 
-def test_move_rejects_is_off_by_default(tmp_path: Path) -> None:
+def test_default_output_mode_moves_nothing(tmp_path: Path) -> None:
     _write_sharp_image(tmp_path / "good.png")
     _write_black_image(tmp_path / "dark.png")
 
@@ -203,13 +204,13 @@ def test_move_rejects_is_off_by_default(tmp_path: Path) -> None:
     assert (tmp_path / "dark.png").exists()
 
 
-def test_move_rejects_sweeps_burst_duplicates_too(tmp_path: Path) -> None:
+def test_output_mode_move_sweeps_burst_duplicates_too(tmp_path: Path) -> None:
     rng = np.random.default_rng(0)
     frame = rng.integers(40, 215, size=(256, 256, 3), dtype=np.uint8)
     for name in ("b1.png", "b2.png", "b3.png"):
         cv2.imwrite(str(tmp_path / name), frame)
 
-    summary = core.process_folder(tmp_path, thresholds=NO_BLINK, move_rejects=True)
+    summary = core.process_folder(tmp_path, thresholds=NO_BLINK, output_mode="move")
 
     rejects = tmp_path / core.REJECTS_DIRNAME
     # One frame kept, the other two collapsed duplicates are moved out.

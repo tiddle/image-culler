@@ -3,8 +3,8 @@
 Phase 1: enumerate the top level of a folder, score each image for exposure and
 blur, copy only the keepers into ``selects/``, and write ``report.csv`` so the
 cull can be audited. By default nothing is moved or deleted; rejects stay in the
-original folder. Optionally (``move_rejects``) every non-keeper is moved out into
-``rejected/`` instead, physically sorting the folder.
+original folder. Optionally (``output_mode="move"``) every non-keeper is moved out
+into ``rejected/`` instead, physically sorting the folder.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ class CullSummary:
     duplicates: int = 0      # rejected frames that lost a burst (Phase 4)
     sidecars_written: int = 0  # XMP sidecars written or merged (Phase 5)
     sidecars_skipped: int = 0  # existing sidecars left untouched (unparseable)
-    rejects_moved: int = 0     # non-keepers relocated to rejected/ (move_rejects)
+    rejects_moved: int = 0     # non-keepers relocated to rejected/ (output_mode="move")
 
 
 def find_images(folder: Path) -> list[Path]:
@@ -147,22 +147,23 @@ def process_folder(
     thresholds: Thresholds | None = None,
     workers: int | None = None,
     output_mode: str = "copy",
-    move_rejects: bool = False,
 ) -> CullSummary:
-    """Phase 1 pipeline: score every top-level image, copy keepers to ``selects/``.
+    """Phase 1 pipeline: score every top-level image, deliver keepers per ``output_mode``.
 
     Writes ``report.csv`` next to ``selects/``. Returns a :class:`CullSummary`.
     ``workers`` defaults to the CPU count; pass 1 to force a serial scan.
 
-    ``output_mode`` selects how the verdict is delivered (Phase 5):
-    ``"copy"`` copies keepers to ``selects/`` (default), ``"sidecar"`` writes XMP
-    sidecars next to RAW files (JPEG keepers still fall back to a ``selects/``
-    copy, since LR does not read sidecars for JPEG), and ``"both"`` does both.
+    ``output_mode`` is a single mutually-exclusive choice of how the cull is
+    delivered:
 
-    ``move_rejects`` (default off) physically moves every non-keeper (quality
-    rejects and collapsed burst duplicates alike) out of the source folder into
-    ``rejected/``. This is destructive: the originals leave the source folder, so
-    they receive no ``selects/`` copy or sidecar.
+    - ``"copy"`` (default): copy keepers into ``selects/``; nothing is moved.
+    - ``"sidecar"``: write XMP sidecars next to RAW keepers (JPEG keepers still
+      fall back to a ``selects/`` copy, since LR does not read sidecars for JPEG).
+    - ``"both"``: copy keepers to ``selects/`` and write RAW sidecars.
+    - ``"move"``: physically move every non-keeper (quality rejects and collapsed
+      burst duplicates alike) out of the source folder into ``rejected/``, sorting
+      the folder in place. Destructive: keepers stay put and get no ``selects/``
+      copy or sidecar, and moved rejects leave the source folder.
     """
     folder = Path(folder)
     images = find_images(folder)
@@ -179,9 +180,6 @@ def process_folder(
         from .blink import blink_available
 
         blink_used = blink_available()
-
-    dest = folder / SELECTS_DIRNAME
-    dest.mkdir(parents=True, exist_ok=True)
 
     verdicts: list[ImageVerdict] = []
     for index, verdict in enumerate(_iter_verdicts(images, thresholds, workers), start=1):
@@ -200,9 +198,13 @@ def process_folder(
 
     write_copies = output_mode in ("copy", "both")
     write_sidecars = output_mode in ("sidecar", "both")
+    move_rejects = output_mode == "move"
     if write_sidecars:
         from .xmp import write_sidecar
 
+    dest = folder / SELECTS_DIRNAME
+    if write_copies or write_sidecars:
+        dest.mkdir(parents=True, exist_ok=True)
     rejects_dest = folder / REJECTS_DIRNAME
 
     kept = 0
@@ -218,8 +220,8 @@ def process_folder(
 
         is_raw = verdict.path.suffix.lower() in _RAW_EXTENSIONS
 
-        # Rejects leave the source folder entirely when move_rejects is on, so
-        # they skip the copy/sidecar output that only applies to retained files.
+        # In "move" mode rejects leave the source folder entirely, so they skip
+        # the copy/sidecar output that only applies to retained files.
         if move_rejects and not verdict.keep:
             rejects_dest.mkdir(parents=True, exist_ok=True)
             shutil.move(str(verdict.path), str(rejects_dest / verdict.path.name))
