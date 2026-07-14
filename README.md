@@ -35,9 +35,6 @@ bursts down to a single best keeper, and delivers the cull one of four ways
 (`multiprocessing`) with a serial fallback. Tuning is aggressive on purpose
 (commercial use, false positives are acceptable).
 
-Again: none of this has been validated on a real shoot. See the AI slop warning
-above.
-
 ## What gets flagged
 
 | Reason | How it's measured |
@@ -90,23 +87,18 @@ Pick exactly one output mode in the window (they are mutually exclusive):
 In Lightroom you may need *Metadata ▸ Read Metadata from File* (or "automatically
 write/read XMP" enabled) for sidecars to register.
 
-## Roadmap
+## Phases
 
-- **Phase 0** — Tkinter window, folder picker, progress bar, copy-through. *Done.*
-- **Phase 1** — exposure + blur via OpenCV; keepers only; `report.csv`. *Done.*
-- **Phase 2** — blink / closed-eye detection (MediaPipe Face Landmarker, eye
-  aspect ratio). *Done.*
-- **Phase 3** — package a single-file Windows `.exe` via PyInstaller (bundles
-  the `.task` model + MediaPipe runtime). *Done* (GitHub Actions builds it).
-  Threshold tuning on a real shoot still pending.
-- **Phase 4** — burst / near-duplicate grouping; keep the best frame of each
-  burst. *Done.*
-- **Phase 5** — Lightroom / Capture One XMP sidecar output. *Done.*
-- **Phase 5.6** — unify delivery into a single mutually-exclusive output mode
-  (`copy` / `sidecar` / `both` / `move`). *Done (v0.6.0).*
+All phases below are coded (not validated on real photos, see the AI slop
+warning). Current release: **v0.6.0**.
 
-Note the "Done" markers describe what was coded, not what has been proven to work
-on real photos. See the AI slop warning.
+1. Window, folder picker, progress bar, copy-through.
+2. Exposure + blur detection (OpenCV); keepers only; `report.csv`.
+3. Blink / closed-eye detection (MediaPipe Face Landmarker).
+4. Burst / near-duplicate grouping; keep the best frame of each burst.
+5. Lightroom / Capture One XMP sidecar output.
+6. Unified output modes (`copy` / `sidecar` / `both` / `move`).
+7. Single-file Windows `.exe` via PyInstaller, built by GitHub Actions.
 
 ## Run from source
 
@@ -123,17 +115,8 @@ From the repo root:
 powershell -ExecutionPolicy Bypass -File build_windows.ps1
 ```
 
-Or manually:
-
-```powershell
-pip install -r requirements.txt -r requirements-build.txt
-pyinstaller image-culler.spec
-```
-
 The result is `dist\ImageCuller.exe`: self-contained (no Python install needed),
-with the Face Landmarker model and MediaPipe's runtime data bundled inside. The
-spec (`image-culler.spec`) collects `mediapipe`'s graph configs and native libs
-in addition to our `assets/face_landmarker.task`.
+with the Face Landmarker model and MediaPipe's runtime bundled inside.
 
 ### …or let GitHub Actions build it
 
@@ -147,9 +130,6 @@ git tag v0.6.1 && git push origin v0.6.1
 
 Or run the **Build & Release** workflow manually (`workflow_dispatch`) to get the
 exe as a downloadable build artifact without cutting a release.
-
-Reminder: the CI only proves the exe *builds and packages*. It does not run
-detection on real photos. Nothing here is validated.
 
 ## Tests
 
