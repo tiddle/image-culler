@@ -3,3 +3,4 @@ numpy>=1.26
 opencv-python>=4.9      # luminance histogram/clipping + Laplacian blur variance
 rawpy>=0.19            # RAW decode via libraw (embedded preview, full fallback)
 mediapipe>=0.10        # Phase 2: Face Landmarker -> eye-aspect-ratio blink check
+exifread>=3.0          # Phase 4: EXIF DateTimeOriginal for burst time-gap grouping

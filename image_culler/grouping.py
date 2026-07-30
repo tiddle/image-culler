@@ -116,14 +116,25 @@ def _ordered_units(units: list[_Unit]) -> list[_Unit]:
     return sorted(units, key=lambda u: u.rep.path.name.lower())
 
 
-def _adjacent(prev: _Unit, curr: _Unit, thresholds: Thresholds) -> bool:
-    """Do two consecutive units belong to the same burst?
+def _same_burst(
+    anchor: _Unit, prev: _Unit, curr: _Unit, thresholds: Thresholds
+) -> bool:
+    """Does ``curr`` still belong to the burst started by ``anchor``?
 
-    Both signals must agree: close in time AND visually similar. The phash check
-    stops a fast scene change from being grouped just because the shutter
-    timestamps were close. When timestamps are absent we group on phash alone.
+    Two signals must agree: close in time AND visually similar.
+
+    Visual similarity is measured against the burst's *anchor* (its first frame),
+    not the immediately preceding one. Comparing only to the previous frame lets a
+    slowly drifting sequence chain together frame-by-frame (each step under the
+    phash threshold) until an entire shoot collapses into a single group and only
+    one keeper survives. Anchoring bounds how far a burst may drift from where it
+    began.
+
+    Time, by contrast, is checked against the previous frame: a burst is a run of
+    frames each shot close after the last, so the gap that matters is between
+    consecutive shots. When timestamps are absent we group on phash alone.
     """
-    if hamming_distance(prev.rep.phash, curr.rep.phash) >= thresholds.burst_phash_distance:
+    if hamming_distance(anchor.rep.phash, curr.rep.phash) >= thresholds.burst_phash_distance:
         return False
     if prev.capture is not None and curr.capture is not None:
         return abs(curr.capture - prev.capture) < thresholds.burst_time_gap
@@ -185,7 +196,8 @@ def group_bursts(
 
     groups: list[list[_Unit]] = [[units[0]]]
     for prev, curr in zip(units, units[1:]):
-        if _adjacent(prev, curr, thresholds):
+        anchor = groups[-1][0]
+        if _same_burst(anchor, prev, curr, thresholds):
             groups[-1].append(curr)
         else:
             groups.append([curr])

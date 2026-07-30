@@ -1,1 +1,2 @@
 pytest>=8.0
+piexif>=1.1     # tests build EXIF fixtures (capture-time / burst grouping)

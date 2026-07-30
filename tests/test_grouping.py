@@ -143,3 +143,19 @@ def test_singleton_keeper_stays_kept() -> None:
     h = perceptual_hash(np.zeros((32, 32), dtype=np.uint8))
     out = {v.path.name: v for v in group_bursts([_v("solo.jpg", phash=h)], T)}
     assert out["solo.jpg"].keep and out["solo.jpg"].group_rank == 1
+
+
+def test_drifting_sequence_does_not_chain_into_one_group() -> None:
+    # A slow visual drift: each frame is within the phash threshold of the one
+    # before it, but the ends are far apart. Comparing only to the previous frame
+    # chains the whole run into a single burst and keeps just one image (the bug).
+    # Anchoring the comparison to the burst's first frame must break the chain.
+    phashes = [0x0, 0xF, 0xFF, 0xFFF, 0xFFFF, 0xFFFFF]
+    for a, b in zip(phashes, phashes[1:]):
+        assert hamming_distance(a, b) < T.burst_phash_distance
+    assert hamming_distance(phashes[0], phashes[-1]) >= T.burst_phash_distance
+
+    frames = [_v(f"f{i}.jpg", phash=h, blur=500.0 + i) for i, h in enumerate(phashes)]
+    out = group_bursts(frames, T)
+    assert len({v.group_id for v in out}) > 1
+    assert sum(1 for v in out if v.keep) > 1
