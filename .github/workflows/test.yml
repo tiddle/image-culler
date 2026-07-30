@@ -1,0 +1,36 @@
+name: Tests
+
+# Runs the unit suite on every push and pull request so broken changes are
+# caught before merge. Separate from release.yml, which only builds the exe on
+# a v* tag.
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        # Deliberately lean and headless — this mirrors the environment the
+        # suite is designed to pass in:
+        # - opencv-python-headless avoids the libGL system dependency that plain
+        #   opencv-python needs on a headless runner.
+        # - mediapipe is omitted on purpose: its FaceLandmarker needs a GL
+        #   context that is flaky / segfaults on headless CI. With it absent the
+        #   tests exercise blink's "unavailable" fallback path, and all the blink
+        #   math (eye-aspect-ratio) is pure Python and still covered.
+        # - rawpy (libraw) is not needed: no test decodes a real RAW file.
+        # - piexif and exifread are test/runtime deps the suite imports directly.
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy "opencv-python-headless>=4.9" exifread piexif pytest
+
+      - name: Run tests
+        run: pytest tests/ -v
