@@ -27,7 +27,7 @@ the "Move rejects" mode).
 
 ## Status
 
-**v0.6.0 — exposure + blur + blink + burst grouping + unified output modes.**
+**v0.6.1 — exposure + blur + blink + burst grouping + unified output modes.**
 Point it at a folder; it scores every top-level image, collapses near-duplicate
 bursts down to a single best keeper, and delivers the cull one of four ways
 (copy to `selects/`, XMP sidecars, both, or move rejects out). It always writes
@@ -90,7 +90,7 @@ write/read XMP" enabled) for sidecars to register.
 ## Phases
 
 All phases below are coded (not validated on real photos, see the AI slop
-warning). Current release: **v0.6.0**.
+warning). Current release: **v0.6.1**.
 
 1. Window, folder picker, progress bar, copy-through.
 2. Exposure + blur detection (OpenCV); keepers only; `report.csv`.
