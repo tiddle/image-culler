@@ -70,6 +70,26 @@ class ImageVerdict:
         return "reject"
 
 
+def _imread_unicode(path: Path) -> np.ndarray | None:
+    """Decode a raster image via a byte buffer instead of ``cv2.imread(path)``.
+
+    ``cv2.imread`` hands the path to a C ``fopen`` and returns ``None`` for any
+    path OpenCV's narrow-string handling cannot open: non-ASCII characters,
+    spaces on some Windows builds, and long or network paths. Those frames then
+    get flagged ``undecodable`` even though they are perfectly good JPEGs.
+    Reading the bytes in Python and decoding from the buffer sidesteps OpenCV's
+    path handling entirely, so only genuinely corrupt data fails to decode.
+    """
+    try:
+        buffer = np.fromfile(str(path), dtype=np.uint8)
+    except OSError:
+        return None
+    if buffer.size == 0:
+        return None
+    image = cv2.imdecode(buffer, cv2.IMREAD_COLOR)
+    return image if image is not None and image.size else None
+
+
 def load_image(path: Path) -> np.ndarray | None:
     """Load any supported image as a BGR uint8 array, or ``None`` if undecodable.
 
@@ -82,8 +102,7 @@ def load_image(path: Path) -> np.ndarray | None:
     if path.suffix.lower() in _RAW_EXTENSIONS:
         return _load_raw(path)
 
-    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
-    return image if image is not None and image.size else None
+    return _imread_unicode(path)
 
 
 def _load_raw(path: Path) -> np.ndarray | None:
