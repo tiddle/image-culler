@@ -27,6 +27,7 @@ hiddenimports = [
     "mediapipe",
     "rawpy",
     "cv2",
+    "exifread",
 ]
 
 a = Analysis(
